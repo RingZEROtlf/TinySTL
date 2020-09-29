@@ -3,8 +3,44 @@
 #ifndef TINY_STL_TYPE_TRAITS_HPP
 #define TINY_STL_TYPE_TRAITS_HPP
 
+#include <algorithm> // used for std::swap
+
 namespace tiny_stl {
-  // [meta.help], helper typename
+  // [meta.help], helper class
+
+  namespace detail {
+    template<typename T> struct type_identity { using type = T; };
+
+    template<typename T> auto try_add_lvalue_reference(int)
+      -> ::tiny_stl::detail::type_identity<T&>;
+    template<typename T> auto try_add_lvalue_reference(...)
+      -> ::tiny_stl::detail::type_identity<T>;
+
+    template<typename T> struct add_lvalue_reference
+      : decltype(try_add_lvalue_reference<T>(0)) {};
+
+    template<typename T> auto try_add_rvalue_reference(int)
+      -> ::tiny_stl::detail::type_identity<T&&>;
+    template<typename T> auto try_add_rvalue_reference(...)
+      -> ::tiny_stl::detail::type_identity<T>;
+
+    template<typename T> struct add_rvalue_reference
+      : decltype(try_add_rvalue_reference<T>(0)) {};
+
+    template<typename T> auto declval() noexcept
+      -> typename ::tiny_stl::detail::add_rvalue_reference<T>::type;
+
+    template<bool B, typename T, typename F> struct conditional {
+      using type = T;
+    };
+    template<typename T, typename F> struct conditional<false, T, F> {
+      using type = F;
+    };
+
+    template<bool B, typename T, typename F>
+      using conditional_t = typename ::tiny_stl::detail::conditional<B, T, F>::type;
+
+  } // namespace tiny_stl::detail
 
   template<typename T, T v> struct integral_constant {
     static constexpr T value = v;
@@ -141,7 +177,7 @@ namespace tiny_stl {
   template<typename T> struct is_union
     : bool_constant<__is_union(T)> {};
 
-  // T is a non-union typename type ([basic.compound])
+  // T is a non-union class type ([basic.compound])
   template<typename T> struct is_class;
 
   namespace detail {
@@ -286,20 +322,20 @@ namespace tiny_stl {
   template<typename T> struct is_standard_layout;
 
   // TODO
-  // T is a typename type, but not a union type, with no non-static data members
+  // T is a class type, but not a union type, with no non-static data members
   // other than subobjects of zero size, no virtual member functions, no virtual
-  // base typenamees, and no base typename B for which is_empty_v<B> is false.
+  // base classes, and no base class B for which is_empty_v<B> is false.
   template<typename T> struct is_empty;
 
   // TODO
-  // T is a polymorphic typename ([typename.virtual])
+  // T is a polymorphic class ([class.virtual])
   template<typename T> struct is_polymorphic;
 
-  // T is an abstract typename ([typename.abstract])
+  // T is an abstract class ([class.abstract])
   template<typename T> struct is_abstract
     : bool_constant<__is_abstract(T)> {};
 
-  // T is a typename type marked with the typename-virt-specifier final ([typename.pre]).
+  // T is a class type marked with the class-virt-specifier final ([class.pre]).
   template<typename T> struct is_final
     : bool_constant<__is_final(T)> {};
 
@@ -399,11 +435,45 @@ namespace tiny_stl {
   // T&>, otherwise false.
   template<typename T> struct is_swappable;
 
-  // TODO
   // Either T is a reference type, or T is a complete object type for which the 
-  // expression declval<U&>().~U() is well-formed when threated as an
+  // expression declval<U&>().~U() is well-formed when treated as an
   // unevaluated operand, whrere U is remove_all_extents_t<T>.
   template<typename T> struct is_destructible;
+
+  namespace detail {
+    template<typename T, typename = decltype(detail::declval<T&>().~T())>
+      auto test_is_destructible(int) -> ::tiny_stl::true_type;
+    template<typename>
+      auto test_is_destructible(...) -> ::tiny_stl::false_type;
+
+    template<typename T> struct remove_all_extents {
+      using type = T;
+    };
+    template<typename T> struct remove_all_extents<T[]> {
+      using type = typename remove_all_extents<T>::type;
+    };
+    template<typename T, size_t N> struct remove_all_extents<T[N]> {
+      using type = typename remove_all_extents<T>::type;
+    };
+
+    template<typename T> struct is_destructible_helper
+      : decltype(::tiny_stl::detail::test_is_destructible<typename ::tiny_stl::detail::remove_all_extents<T>::type>(0)) {};
+  } // namespace tiny_stl::detail
+
+  template<typename T> struct is_destructible
+    : detail::conditional_t<
+        is_reference<T>::value,
+        true_type,
+        detail::conditional_t<
+          is_void<T>::value || is_function<T>::value || is_unbounded_array<T>::value,
+          false_type,
+          detail::conditional_t<
+            is_object<T>::value,
+            typename detail::is_destructible_helper<T>::type,
+            false_type
+          >
+        >
+    > {};
 
   // TODO
   // is_constructible_v<T, 
@@ -440,7 +510,7 @@ namespace tiny_stl {
 
   // TODO
   // is_destructible_v<T> is true and remove_all_extents_t<T> is either
-  // a non-typename type or a typename type with a trivial destructor.
+  // a non-class type or a class type with a trivial destructor.
   template<typename T> struct is_trivially_destructible;
 
   // TODO
@@ -489,9 +559,9 @@ namespace tiny_stl {
   // to throw any exceptions ([expr.unary.noexcept]).
   template<typename T> struct is_nothrow_destructible;
 
-  // TODO
-  // T has a virtual destructor ([typename.dtor])
-  template<typename T> struct has_virtual_destructor;
+  // T has a virtual destructor ([class.dtor])
+  template<typename T> struct has_virtual_destructor
+    : bool_constant<__has_virtual_destructor(T)> {};
 
   // TODO
   // For an array type T, the same result as
@@ -501,7 +571,7 @@ namespace tiny_stl {
   // and only if:
   //  - T is trivially copyable, and
   //  - any two objects of type T with the same value have the same object representation, where two objects of array or
-  //    non-union typename type are considered to have the same value if their respective sequences of direct subjects
+  //    non-union class type are considered to have the same value if their respective sequences of direct subjects
   //    have the same values, and two objects of union type are considered to have the same value if they have the same
   //    active member and the corresponding members have the same value.
   // The set of scalar types for which this condition holds is implementation-defined.
@@ -662,22 +732,6 @@ namespace tiny_stl {
 
   // If T names a referenceable type then the member typedef type names
   // T&; otherwise, type names T;
-  template<typename T> struct add_lvalue_reference;
-
-  namespace detail {
-    template<typename T> struct type_identity { using type = T; };
-
-    template<typename T> auto try_add_lvalue_reference(int)
-      -> ::tiny_stl::detail::type_identity<T&>;
-    template<typename T> auto try_add_lvalue_reference(...)
-      -> ::tiny_stl::detail::type_identity<T>;
-
-    template<typename T> auto try_add_rvalue_reference(int)
-      -> ::tiny_stl::detail::type_identity<T&&>;
-    template<typename T> auto try_add_rvalue_reference(...)
-      -> ::tiny_stl::detail::type_identity<T>;
-  } // namespace tiny_stl::detail
-
   template<typename T> struct add_lvalue_reference
     : decltype(detail::try_add_lvalue_reference<T>(0)) {};
 
@@ -745,16 +799,6 @@ namespace tiny_stl {
   template<typename T> struct make_signed;
 
   namespace detail {
-    template<bool B, typename T, typename F> struct conditional {
-      using type = T;
-    };
-    template<typename T, typename F> struct conditional<false, T, F> {
-      using type = F;
-    };
-
-    template<bool B, typename T, typename F>
-      using conditional_t = typename ::tiny_stl::detail::conditional<B, T, F>::type;
-
     template<size_t> struct make_signed_helper;
     template<> struct make_signed_helper<1> {
       template<typename> using type = signed char;
