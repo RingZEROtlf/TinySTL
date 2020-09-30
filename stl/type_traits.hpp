@@ -4,6 +4,7 @@
 #define TINY_STL_TYPE_TRAITS_HPP
 
 #include <algorithm> // used for std::swap
+#include <type_traits>
 
 namespace tiny_stl {
   // [meta.help], helper class
@@ -441,7 +442,7 @@ namespace tiny_stl {
   template<typename T> struct is_destructible;
 
   namespace detail {
-    template<typename T, typename = decltype(detail::declval<T&>().~T())>
+    template<typename T, typename = decltype(::tiny_stl::detail::declval<T&>().~T())>
       auto test_is_destructible(int) -> ::tiny_stl::true_type;
     template<typename>
       auto test_is_destructible(...) -> ::tiny_stl::false_type;
@@ -456,8 +457,11 @@ namespace tiny_stl {
       using type = typename remove_all_extents<T>::type;
     };
 
+    template<typename T> struct is_destructible_helper2
+      : decltype(::tiny_stl::detail::test_is_destructible<T>(0)) {};
+
     template<typename T> struct is_destructible_helper
-      : decltype(::tiny_stl::detail::test_is_destructible<typename ::tiny_stl::detail::remove_all_extents<T>::type>(0)) {};
+      : ::tiny_stl::detail::is_destructible_helper2<::tiny_stl::detail::remove_all_extents<T>> {};
   } // namespace tiny_stl::detail
 
   template<typename T> struct is_destructible
